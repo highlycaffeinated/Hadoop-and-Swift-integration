@@ -595,7 +595,12 @@ public final class SwiftRestClient {
                                   final Header... requestHeaders) throws IOException {
     preRemoteCommand("getObjectLocation");
     try {
-      return perform(pathToObjectLocation(path),
+      URI objLocationPath = pathToObjectLocation(path);
+      if (objLocationPath == null) {
+    	  return null;
+      }
+      
+	  return perform(objLocationPath,
               new GetMethodProcessor<byte[]>() {
                 @Override
                 protected int[] getAllowedStatusCodes() {
@@ -642,6 +647,10 @@ public final class SwiftRestClient {
    * @throws SwiftException if the URI could not be constructed
    */
   private URI pathToObjectLocation(SwiftObjectPath path) throws SwiftException {
+    if (objectLocationURI == null) {
+    	return null;
+    }
+    
     URI uri;
     String dataLocationURI = objectLocationURI.toString();
     try {
@@ -1074,23 +1083,7 @@ public final class SwiftRestClient {
 
 
         accessToken = access.getToken();
-        String path = SWIFT_OBJECT_AUTH_ENDPOINT
-                + swiftEndpoint.getTenantId();
-        String host = endpointURI.getHost();
-        try {
-          objectLocation = new URI(endpointURI.getScheme(),
-                  null,
-                  host,
-                  endpointURI.getPort(),
-                  path,
-                  null,
-                  null);
-        } catch (URISyntaxException e) {
-          throw new SwiftException("object endpoint URI is incorrect: "
-                  + endpointURI
-                  + " + " + path,
-                  e);
-        }
+        objectLocation = makeObjectLocationURI(endpointURI, swiftEndpoint);
         setAuthDetails(endpointURI, objectLocation, accessToken);
 
         if (LOG.isDebugEnabled()) {
@@ -1100,6 +1093,45 @@ public final class SwiftRestClient {
         return accessToken;
       }
     });
+  }
+  
+  private URI makeObjectLocationURI(URI endpointURI, Endpoint swiftEndpoint) 
+	throws IOException {
+
+	URI testUri = makeUriFromEndpoint(endpointURI, SWIFT_OBJECT_AUTH_ENDPOINT); 
+			
+	Boolean hasLocations = perform(testUri, new HeadMethodProcessor<Boolean>() {		
+	  @Override
+	  public Boolean extractResult(HeadMethod method) throws IOException {
+	    return method.getStatusCode() == SC_NO_CONTENT;
+	  }
+	});
+	  
+	if (hasLocations) {
+	  String path = SWIFT_OBJECT_AUTH_ENDPOINT + swiftEndpoint.getTenantId();
+	        
+	  return makeUriFromEndpoint(endpointURI, path);
+    } else {
+	  return null;
+	}
+  }
+  
+  private static URI makeUriFromEndpoint(URI endpoint, String newPath) 
+		  throws SwiftException {
+	try {
+	  return new URI(endpoint.getScheme(),
+              null,
+              endpoint.getHost(),
+              endpoint.getPort(),
+              newPath,
+              null,
+              null);  
+    } catch (URISyntaxException e) {
+      throw new SwiftException("can't make new URI from endpoint: "
+              + endpoint
+              + " + " + newPath,
+              e);
+    }
   }
 
   /**
